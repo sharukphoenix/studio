@@ -6,8 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription, DialogClose } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { GitCommitHorizontal, GitBranch, GitMerge, SquareArrowDown, RotateCcw } from 'lucide-react';
-import type { GitRepository } from '@/types/git';
+import { GitCommitHorizontal, GitBranch, GitMerge, SquareArrowDown, RotateCcw, Undo2 } from 'lucide-react';
+import type { GitRepository, Commit } from '@/types/git';
 
 interface ControlsProps {
   repoState: GitRepository;
@@ -17,16 +17,21 @@ interface ControlsProps {
   onMerge: (name: string) => void;
   onStage: () => void;
   onInit: () => void;
+  onRevert: (commitId: string) => void;
+  repoCommits: Commit[];
 }
 
-export default function Controls({ repoState, onCommit, onBranch, onCheckout, onMerge, onStage, onInit }: ControlsProps) {
+export default function Controls({ repoState, onCommit, onBranch, onCheckout, onMerge, onStage, onInit, onRevert, repoCommits }: ControlsProps) {
   const [commitMessage, setCommitMessage] = useState('');
   const [newBranchName, setNewBranchName] = useState('');
   const [mergeBranch, setMergeBranch] = useState<string>('');
+  const [revertCommitId, setRevertCommitId] = useState('');
   
   const currentBranch = repoState.HEAD.type === 'branch' ? repoState.HEAD.name : 'detached';
   const otherBranches = Object.keys(repoState.branches).filter(b => b !== currentBranch);
   const isWorkingDirClean = repoState.workingDirectory === (repoState.HEAD.type === 'branch' ? repoState.commits[repoState.branches[repoState.HEAD.name].commitId].content : repoState.commits[repoState.HEAD.id].content);
+
+  const revertableCommits = repoCommits.filter(c => c.parents.length > 0);
 
   const handleCommitClick = () => {
     if (commitMessage.trim()) {
@@ -46,6 +51,13 @@ export default function Controls({ repoState, onCommit, onBranch, onCheckout, on
     if (mergeBranch) {
         onMerge(mergeBranch);
         setMergeBranch('');
+    }
+  };
+
+  const handleRevertClick = () => {
+    if (revertCommitId) {
+      onRevert(revertCommitId);
+      setRevertCommitId('');
     }
   };
 
@@ -70,14 +82,10 @@ export default function Controls({ repoState, onCommit, onBranch, onCheckout, on
             value={commitMessage}
             onChange={(e) => setCommitMessage(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+              if (e.key === 'Enter' && commitMessage.trim()) {
                 e.preventDefault();
                 handleCommitClick();
-                (e.target as HTMLElement).closest('[role="dialog"]')
-                  ?.querySelector('[aria-label="Close"]')
-                  // The type assertion is a bit of a hack, but it works in this context.
-                  // A more robust solution might involve managing dialog open state manually.
-                  ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                 (e.target as HTMLElement).closest('button[aria-label="Close"]')?.click();
               }
             }}
           />
@@ -134,6 +142,36 @@ export default function Controls({ repoState, onCommit, onBranch, onCheckout, on
           <DialogFooter>
             <DialogClose asChild>
                 <Button onClick={handleMergeClick} disabled={!mergeBranch}>Merge</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+       <Dialog>
+        <DialogTrigger asChild>
+          <Button variant="secondary" size="sm" disabled={revertableCommits.length === 0}><Undo2 className="mr-2 h-4 w-4" /> Revert</Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Revert a commit</DialogTitle>
+            <DialogDescription>
+                This creates a new commit that undoes the changes from a selected commit.
+            </DialogDescription>
+          </DialogHeader>
+           <Select onValueChange={setRevertCommitId} value={revertCommitId}>
+            <SelectTrigger><SelectValue placeholder="Select a commit to revert" /></SelectTrigger>
+            <SelectContent>
+              {revertableCommits.map(c => (
+                  <SelectItem key={c.id} value={c.id}>
+                      <span className="font-mono text-xs mr-2">{c.id.substring(0,7)}</span> 
+                      <span>{c.message}</span>
+                  </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <DialogFooter>
+            <DialogClose asChild>
+                <Button onClick={handleRevertClick} disabled={!revertCommitId}>Revert Commit</Button>
             </DialogClose>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducer, useEffect, useState } from 'react';
+import { useReducer, useEffect, useState, useMemo } from 'react';
 import type { GitRepository, Commit } from '@/types/git';
 import TextEditor from './TextEditor';
 import Timeline from './Timeline';
@@ -40,7 +40,8 @@ type Action =
   | { type: 'COMMIT', payload: { message: string, author: string } }
   | { type: 'BRANCH', payload: { branchName: string, fromCommitId: string } }
   | { type: 'CHECKOUT', payload: string }
-  | { type: 'MERGE', payload: string };
+  | { type: 'MERGE', payload: string }
+  | { type: 'REVERT', payload: { commitId: string } };
 
 function gitReducer(state: GitRepository, action: Action): GitRepository {
     switch (action.type) {
@@ -135,6 +136,40 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
                 commitOrder: [...state.commitOrder, newCommitId],
             };
         }
+        case 'REVERT': {
+            if (state.HEAD.type !== 'branch') return state;
+
+            const { commitId } = action.payload;
+            const commitToRevert = state.commits[commitId];
+
+            if (!commitToRevert || commitToRevert.parents.length === 0) {
+                return state; // Cannot revert initial commit
+            }
+
+            const parentOfRevertedCommit = state.commits[commitToRevert.parents[0]];
+            const newContent = parentOfRevertedCommit.content;
+            
+            const newCommitId = crypto.randomUUID().slice(0, 7);
+            const parentCommitId = state.branches[state.HEAD.name].commitId;
+
+            const newCommit: Commit = {
+                id: newCommitId,
+                parents: [parentCommitId],
+                message: `Revert "${commitToRevert.message}"`,
+                author: 'GitFlow',
+                timestamp: Date.now(),
+                content: newContent,
+            };
+
+            return {
+                ...state,
+                commits: { ...state.commits, [newCommitId]: newCommit },
+                branches: { ...state.branches, [state.HEAD.name]: { ...state.branches[state.HEAD.name], commitId: newCommitId } },
+                workingDirectory: newContent,
+                stagingArea: null,
+                commitOrder: [...state.commitOrder, newCommitId],
+            };
+        }
         default:
             return state;
     }
@@ -149,6 +184,30 @@ export default function GitVisualizer() {
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  const currentBranchCommits = useMemo(() => {
+    if (!isClient || repoState.HEAD.type !== 'branch') return [];
+    
+    const commitsList: Commit[] = [];
+    const headCommitId = repoState.branches[repoState.HEAD.name].commitId;
+    let currentCommitId: string | undefined = headCommitId;
+    const visited = new Set<string>();
+
+    while (currentCommitId && !visited.has(currentCommitId)) {
+        visited.add(currentCommitId);
+        const commit = repoState.commits[currentCommitId];
+        if (commit) {
+            commitsList.push(commit);
+            // This simplification only follows the first parent.
+            // For a merge commit, it will follow the main branch history.
+            currentCommitId = commit.parents[0];
+        } else {
+            currentCommitId = undefined;
+        }
+    }
+    return commitsList.sort((a, b) => b.timestamp - a.timestamp);
+  }, [repoState, isClient]);
+
 
   const handleCommit = (message: string) => {
     if (repoState.stagingArea === null) {
@@ -200,6 +259,14 @@ export default function GitVisualizer() {
     toast({ title: 'Merge successful', description: `Merged "${branchName}" into current branch.` });
   };
 
+  const handleRevert = (commitId: string) => {
+    dispatch({ type: 'REVERT', payload: { commitId } });
+    toast({
+      title: 'Commit reverted',
+      description: `Created a new commit to revert the selected changes.`,
+    });
+  };
+
   const handleStage = () => {
     dispatch({ type: 'STAGE' });
     toast({ title: 'Changes Staged', description: 'Your changes are ready to be committed.' });
@@ -229,6 +296,8 @@ export default function GitVisualizer() {
                 onMerge={handleMerge}
                 onStage={handleStage}
                 onInit={handleInit}
+                onRevert={handleRevert}
+                repoCommits={currentBranchCommits}
             />
         </header>
         <div className="flex flex-grow overflow-hidden">
