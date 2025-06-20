@@ -1,3 +1,9 @@
+import GitVisualizer from '@/components/git-flow/GitVisualizer';
+
 export default function Home() {
-  return <></>;
+  return (
+    <main className="h-full">
+      <GitVisualizer />
+    </main>
+  );
 }
