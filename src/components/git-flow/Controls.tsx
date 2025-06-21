@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription, DialogClose } from '@/components/ui/dialog';
@@ -29,9 +29,17 @@ export default function Controls({ repoState, onCommit, onBranch, onCheckout, on
   
   const currentBranch = repoState.HEAD.type === 'branch' ? repoState.HEAD.name : 'detached';
   const otherBranches = Object.keys(repoState.branches).filter(b => b !== currentBranch);
+  const isMerging = !!repoState.mergeState;
+
   const isWorkingDirClean = repoState.workingDirectory === (repoState.HEAD.type === 'branch' ? repoState.commits[repoState.branches[repoState.HEAD.name].commitId].content : repoState.commits[repoState.HEAD.id].content);
 
   const revertableCommits = repoCommits.filter(c => c.parents.length > 0);
+
+  useEffect(() => {
+    if (isMerging) {
+      setCommitMessage(`Merge branch '${repoState.mergeState!.sourceBranch}' into '${currentBranch}'`);
+    }
+  }, [isMerging, repoState.mergeState, currentBranch]);
 
   const handleCommitClick = () => {
     if (commitMessage.trim()) {
@@ -63,19 +71,22 @@ export default function Controls({ repoState, onCommit, onBranch, onCheckout, on
 
   return (
     <div className="flex items-center gap-2">
-      <Button onClick={onInit} variant="outline" size="sm"><RotateCcw className="mr-2 h-4 w-4" /> Init Repo</Button>
+      <Button onClick={onInit} variant="outline" size="sm" disabled={isMerging}><RotateCcw className="mr-2 h-4 w-4" /> Init Repo</Button>
       
-      <Button onClick={onStage} variant="outline" size="sm" disabled={isWorkingDirClean}>
+      <Button onClick={onStage} variant="outline" size="sm" disabled={isWorkingDirClean && !isMerging}>
         <SquareArrowDown className="mr-2 h-4 w-4" /> Stage
       </Button>
 
       <Dialog>
         <DialogTrigger asChild>
-          <Button size="sm" disabled={repoState.stagingArea === null}><GitCommitHorizontal className="mr-2 h-4 w-4" /> Commit</Button>
+          <Button size="sm" disabled={repoState.stagingArea === null}>
+            <GitCommitHorizontal className="mr-2 h-4 w-4" /> {isMerging ? 'Complete Merge' : 'Commit'}
+          </Button>
         </DialogTrigger>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Commit Changes</DialogTitle>
+            <DialogTitle>{isMerging ? 'Complete Merge Commit' : 'Commit Changes'}</DialogTitle>
+             {isMerging && <DialogDescription>Review the commit message for the merge.</DialogDescription>}
           </DialogHeader>
           <Input 
             placeholder="Your commit message..." 
@@ -91,7 +102,7 @@ export default function Controls({ repoState, onCommit, onBranch, onCheckout, on
           />
           <DialogFooter>
             <DialogClose asChild>
-                <Button onClick={handleCommitClick}>Commit</Button>
+                <Button onClick={handleCommitClick}>{isMerging ? 'Complete Merge' : 'Commit'}</Button>
             </DialogClose>
           </DialogFooter>
         </DialogContent>
@@ -99,7 +110,7 @@ export default function Controls({ repoState, onCommit, onBranch, onCheckout, on
       
       <Dialog>
         <DialogTrigger asChild>
-          <Button variant="secondary" size="sm"><GitBranch className="mr-2 h-4 w-4" /> Branch</Button>
+          <Button variant="secondary" size="sm" disabled={isMerging}><GitBranch className="mr-2 h-4 w-4" /> Branch</Button>
         </DialogTrigger>
         <DialogContent>
           <DialogHeader>
@@ -124,7 +135,7 @@ export default function Controls({ repoState, onCommit, onBranch, onCheckout, on
       
       <Dialog>
         <DialogTrigger asChild>
-          <Button variant="secondary" size="sm" disabled={otherBranches.length === 0}><GitMerge className="mr-2 h-4 w-4" /> Merge</Button>
+          <Button variant="secondary" size="sm" disabled={otherBranches.length === 0 || isMerging}><GitMerge className="mr-2 h-4 w-4" /> Merge</Button>
         </DialogTrigger>
         <DialogContent>
           <DialogHeader>
@@ -149,7 +160,7 @@ export default function Controls({ repoState, onCommit, onBranch, onCheckout, on
 
        <Dialog>
         <DialogTrigger asChild>
-          <Button variant="secondary" size="sm" disabled={revertableCommits.length === 0}><Undo2 className="mr-2 h-4 w-4" /> Revert</Button>
+          <Button variant="secondary" size="sm" disabled={revertableCommits.length === 0 || isMerging}><Undo2 className="mr-2 h-4 w-4" /> Revert</Button>
         </DialogTrigger>
         <DialogContent>
           <DialogHeader>
@@ -177,7 +188,7 @@ export default function Controls({ repoState, onCommit, onBranch, onCheckout, on
         </DialogContent>
       </Dialog>
 
-      <Select onValueChange={onCheckout} value={currentBranch}>
+      <Select onValueChange={onCheckout} value={currentBranch} disabled={isMerging}>
         <SelectTrigger className="w-[180px]" size="sm">
           <GitBranch className="mr-2 h-4 w-4" />
           <SelectValue placeholder="Checkout branch" />

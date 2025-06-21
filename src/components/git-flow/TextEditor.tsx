@@ -14,20 +14,24 @@ interface TextEditorProps {
 export default function TextEditor({ content, onContentChange, stagedContent, headContent }: TextEditorProps) {
   const isModified = content !== headContent;
   const isStaged = stagedContent !== null;
+  const hasConflict = content.includes('<<<<<<< HEAD');
   
   return (
     <Card className="h-full flex flex-col">
       <CardHeader>
         <div className="flex justify-between items-center">
             <CardTitle className="font-headline">Working Copy</CardTitle>
-            <div>
-              {isStaged && <Badge variant="secondary" className="bg-green-500 text-white">Staged</Badge>}
-              {isModified && <Badge variant="destructive">Modified</Badge>}
-              {!isModified && !isStaged && <Badge variant="outline">Clean</Badge>}
+            <div className="flex gap-2">
+              {hasConflict && <Badge variant="destructive">Conflict</Badge>}
+              {!hasConflict && isStaged && <Badge variant="secondary">Staged</Badge>}
+              {!hasConflict && isModified && !isStaged && <Badge variant="destructive">Modified</Badge>}
+              {!hasConflict && !isModified && !isStaged && <Badge variant="outline">Clean</Badge>}
             </div>
         </div>
         <CardDescription>
-          This is your virtual file. Make changes and commit them.
+          {hasConflict
+            ? "A merge conflict has occurred. Please resolve it and commit."
+            : "This is your virtual file. Make changes and commit them."}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex-grow">

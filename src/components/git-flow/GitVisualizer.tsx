@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducer, useEffect, useState, useMemo } from 'react';
+import { useReducer, useEffect, useState, useMemo, useRef } from 'react';
 import type { GitRepository, Commit } from '@/types/git';
 import TextEditor from './TextEditor';
 import Timeline from './Timeline';
@@ -43,6 +43,42 @@ type Action =
   | { type: 'MERGE', payload: string }
   | { type: 'REVERT', payload: { commitId: string } };
 
+function findCommonAncestor(state: GitRepository, commitId1: string, commitId2: string): string | null {
+    const getAncestors = (startId: string): Set<string> => {
+        const ancestors = new Set<string>();
+        const queue: string[] = [startId];
+        const visited = new Set<string>();
+
+        while (queue.length > 0) {
+            const currentId = queue.shift()!;
+            if (visited.has(currentId)) continue;
+            visited.add(currentId);
+            ancestors.add(currentId);
+            const commit = state.commits[currentId];
+            if (commit) {
+                queue.push(...commit.parents);
+            }
+        }
+        return ancestors;
+    };
+
+    const ancestors1 = getAncestors(commitId1);
+    const ancestors2 = getAncestors(commitId2);
+
+    const commonAncestors = [...ancestors1].filter(id => ancestors2.has(id));
+    
+    if (commonAncestors.length === 0) return null;
+
+    commonAncestors.sort((a, b) => {
+        const indexA = state.commitOrder.indexOf(a);
+        const indexB = state.commitOrder.indexOf(b);
+        return indexB - indexA;
+    });
+
+    return commonAncestors[0];
+}
+
+
 function gitReducer(state: GitRepository, action: Action): GitRepository {
     switch (action.type) {
         case 'INIT':
@@ -52,7 +88,7 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
         case 'STAGE': {
             const headCommitId = state.HEAD.type === 'branch' ? state.branches[state.HEAD.name].commitId : state.HEAD.id;
             const headContent = state.commits[headCommitId].content;
-            if (state.workingDirectory === headContent) {
+            if (state.workingDirectory === headContent && !state.mergeState) {
                 return state;
             }
             return { ...state, stagingArea: state.workingDirectory };
@@ -61,9 +97,38 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
             if (state.stagingArea === null) return state;
             if (state.HEAD.type !== 'branch') return state;
             
-            const newCommitId = crypto.randomUUID().slice(0, 7);
-            const parentCommitId = state.branches[state.HEAD.name].commitId;
+            const currentBranchName = state.HEAD.name;
+            const parentCommitId = state.branches[currentBranchName].commitId;
 
+            // Handle merge commit
+            if (state.mergeState) {
+                const sourceBranchName = state.mergeState.sourceBranch;
+                const sourceCommitId = state.branches[sourceBranchName].commitId;
+
+                const newCommitId = crypto.randomUUID().slice(0, 7);
+                const mergeCommit: Commit = {
+                    id: newCommitId,
+                    parents: [parentCommitId, sourceCommitId].sort(),
+                    message: action.payload.message,
+                    author: action.payload.author,
+                    timestamp: Date.now(),
+                    content: state.stagingArea,
+                };
+                
+                // Clear mergeState by destructuring it out
+                const { mergeState, ...restState } = state;
+
+                return {
+                    ...restState,
+                    commits: { ...state.commits, [newCommitId]: mergeCommit },
+                    branches: { ...state.branches, [currentBranchName]: { ...state.branches[currentBranchName], commitId: newCommitId } },
+                    workingDirectory: mergeCommit.content,
+                    stagingArea: null,
+                    commitOrder: [...state.commitOrder, newCommitId],
+                };
+            }
+
+            const newCommitId = crypto.randomUUID().slice(0, 7);
             const newCommit: Commit = {
                 id: newCommitId,
                 parents: [parentCommitId],
@@ -83,7 +148,7 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
         }
         case 'BRANCH': {
             const { branchName, fromCommitId } = action.payload;
-            if (state.branches[branchName]) return state;
+            if (state.branches[branchName] || state.mergeState) return state;
             
             return {
                 ...state,
@@ -92,7 +157,7 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
         }
         case 'CHECKOUT': {
             const branchName = action.payload;
-            if (!state.branches[branchName]) return state;
+            if (!state.branches[branchName] || state.mergeState) return state;
             
             const headCommitId = state.branches[branchName].commitId;
             const headContent = state.commits[headCommitId].content;
@@ -106,13 +171,53 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
         }
         case 'MERGE': {
             const sourceBranchName = action.payload;
-            if (state.HEAD.type !== 'branch') return state;
+            if (state.HEAD.type !== 'branch' || state.mergeState) return state;
             
             const targetBranchName = state.HEAD.name;
             if (sourceBranchName === targetBranchName) return state;
 
             const sourceCommitId = state.branches[sourceBranchName].commitId;
             const targetCommitId = state.branches[targetBranchName].commitId;
+
+            const commonAncestorId = findCommonAncestor(state, sourceCommitId, targetCommitId);
+            if (!commonAncestorId) return state; 
+            
+            if(commonAncestorId === sourceCommitId) { // Target is ahead, fast-forwardable
+                 return { // No-ff merge
+                    ...state,
+                };
+            }
+             if (commonAncestorId === targetCommitId) { // Source is ahead, fast-forward
+                return {
+                    ...state,
+                    branches: { ...state.branches, [targetBranchName]: { ...state.branches[targetBranchName], commitId: sourceCommitId } },
+                    workingDirectory: state.commits[sourceCommitId].content,
+                    stagingArea: null,
+                };
+            }
+
+            const sourceCommit = state.commits[sourceCommitId];
+            const targetCommit = state.commits[targetCommitId];
+            const ancestorCommit = state.commits[commonAncestorId];
+
+            const sourceContent = sourceCommit.content;
+            const targetContent = targetCommit.content;
+            const ancestorContent = ancestorCommit.content;
+            
+            const sourceChanged = sourceContent !== ancestorContent;
+            const targetChanged = targetContent !== ancestorContent;
+
+            if (sourceChanged && targetChanged && sourceContent !== targetContent) {
+                const conflictContent = `<<<<<<< HEAD\n${targetContent}\n=======\n${sourceContent}\n>>>>>>> ${sourceBranchName}`;
+                return {
+                    ...state,
+                    workingDirectory: conflictContent,
+                    stagingArea: null,
+                    mergeState: { sourceBranch: sourceBranchName },
+                };
+            }
+
+            const mergedContent = sourceChanged ? sourceContent : targetContent;
             
             const newCommitId = crypto.randomUUID().slice(0, 7);
             const mergeCommit: Commit = {
@@ -121,7 +226,7 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
                 message: `Merge branch '${sourceBranchName}' into '${targetBranchName}'`,
                 author: 'GitFlow',
                 timestamp: Date.now(),
-                content: state.commits[sourceCommitId].content,
+                content: mergedContent,
             };
 
             return {
@@ -137,7 +242,7 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
             };
         }
         case 'REVERT': {
-            if (state.HEAD.type !== 'branch') return state;
+            if (state.HEAD.type !== 'branch' || state.mergeState) return state;
 
             const { commitId } = action.payload;
             const commitToRevert = state.commits[commitId];
@@ -185,6 +290,21 @@ export default function GitVisualizer() {
     setIsClient(true);
   }, []);
 
+  const prevMergeStateRef = useRef(repoState.mergeState);
+  useEffect(() => {
+    const prevMergeState = prevMergeStateRef.current;
+    if (repoState.mergeState && !prevMergeState) {
+       toast({
+        variant: "destructive",
+        title: "Merge Conflict!",
+        description: `Auto-merge failed. Resolve conflicts in the editor, then stage and commit to proceed.`,
+        duration: 5000,
+      });
+    }
+    prevMergeStateRef.current = repoState.mergeState;
+  }, [repoState.mergeState, toast]);
+
+
   const currentBranchCommits = useMemo(() => {
     if (!isClient || repoState.HEAD.type !== 'branch') return [];
     
@@ -218,14 +338,21 @@ export default function GitVisualizer() {
       });
       return;
     }
+    
+    const isMerging = !!repoState.mergeState;
     dispatch({ type: 'COMMIT', payload: { message, author: 'You' } });
+
     toast({
-      title: "Committed!",
-      description: "Your changes have been committed.",
+      title: isMerging ? "Merge complete!" : "Committed!",
+      description: isMerging ? `Successfully merged.` : "Your changes have been committed.",
     });
   };
 
   const handleBranch = (branchName: string) => {
+    if (repoState.mergeState) {
+        toast({ variant: 'destructive', title: 'Merge in progress', description: 'Finish the merge before creating a new branch.' });
+        return;
+    }
     const currentCommitId = repoState.HEAD.type === 'branch' ? repoState.branches[repoState.HEAD.name].commitId : repoState.HEAD.id;
     if (repoState.branches[branchName]) {
       toast({
@@ -243,6 +370,14 @@ export default function GitVisualizer() {
   };
 
   const handleCheckout = (branchName: string) => {
+    if (repoState.mergeState) {
+      toast({
+        variant: "destructive",
+        title: "Merge in progress",
+        description: `Cannot switch branches while resolving a merge conflict. Please commit or abort.`,
+      });
+      return;
+    }
     dispatch({ type: 'CHECKOUT', payload: branchName });
     toast({
       title: 'Switched branch',
@@ -256,10 +391,16 @@ export default function GitVisualizer() {
         return;
     }
     dispatch({ type: 'MERGE', payload: branchName });
-    toast({ title: 'Merge successful', description: `Merged "${branchName}" into current branch.` });
+    if (!repoState.mergeState) {
+        toast({ title: 'Merge successful', description: `Merged "${branchName}" into current branch.` });
+    }
   };
 
   const handleRevert = (commitId: string) => {
+     if (repoState.mergeState) {
+        toast({ variant: 'destructive', title: 'Merge in progress', description: 'Finish the merge before reverting.' });
+        return;
+    }
     dispatch({ type: 'REVERT', payload: { commitId } });
     toast({
       title: 'Commit reverted',
@@ -297,7 +438,7 @@ export default function GitVisualizer() {
                 onStage={handleStage}
                 onInit={handleInit}
                 onRevert={handleRevert}
-                repoCommits={currentBranchCommits}
+                repoCommits={Object.values(repoState.commits)}
             />
         </header>
         <div className="flex flex-grow overflow-hidden">

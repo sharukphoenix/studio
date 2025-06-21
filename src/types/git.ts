@@ -19,4 +19,7 @@ export interface GitRepository {
   stagingArea: string | null;
   workingDirectory: string;
   commitOrder: string[];
+  mergeState?: {
+    sourceBranch: string;
+  };
 }
