@@ -450,8 +450,8 @@ export default function GitVisualizer() {
 
   return (
     <div className="flex flex-col h-full bg-background font-sans">
-        <header className="p-4 border-b border-border flex items-center justify-between bg-card shrink-0">
-            <h1 className="text-2xl font-bold font-headline text-primary">GitFlow</h1>
+        <header className="p-4 border-b border-border flex flex-col sm:flex-row items-center justify-between gap-4 bg-card shrink-0">
+            <h1 className="text-2xl font-bold font-headline text-primary text-center sm:text-left">GitFlow</h1>
             <Controls 
                 repoState={repoState}
                 onCommit={handleCommit}
@@ -465,6 +465,13 @@ export default function GitVisualizer() {
             />
         </header>
         <div className="flex flex-col md:flex-row flex-grow overflow-hidden">
+            <div className="w-full md:w-3/5 p-4 h-[50svh] md:h-full overflow-auto border-t md:border-t-0 md:border-l flex-grow order-1 md:order-2">
+                <Card className="h-full">
+                    <CardContent className="p-4 h-full">
+                        <Timeline repoState={repoState} />
+                    </CardContent>
+                </Card>
+            </div>
             <div className="w-full md:w-2/5 p-4 h-[50svh] md:h-full flex flex-col min-w-[300px] order-2 md:order-1">
               <TextEditor 
                   content={repoState.workingDirectory}
@@ -472,13 +479,6 @@ export default function GitVisualizer() {
                   stagedContent={repoState.stagingArea}
                   headContent={headContent}
               />
-            </div>
-            <div className="w-full md:w-3/5 p-4 h-[50svh] md:h-full overflow-auto border-t md:border-t-0 md:border-l flex-grow order-1 md:order-2">
-                <Card className="h-full">
-                    <CardContent className="p-4 h-full">
-                        <Timeline repoState={repoState} />
-                    </CardContent>
-                </Card>
             </div>
         </div>
     </div>

@@ -70,7 +70,7 @@ export default function Controls({ repoState, onCommit, onBranch, onCheckout, on
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2">
       <Button onClick={onInit} variant="outline" size="sm" disabled={isMerging}><RotateCcw className="mr-2 h-4 w-4" /> Init Repo</Button>
       
       <Button onClick={onStage} variant="outline" size="sm" disabled={isWorkingDirClean && !isMerging}>
@@ -189,7 +189,7 @@ export default function Controls({ repoState, onCommit, onBranch, onCheckout, on
       </Dialog>
 
       <Select onValueChange={onCheckout} value={currentBranch} disabled={isMerging}>
-        <SelectTrigger className="w-[180px]" size="sm">
+        <SelectTrigger className="w-full sm:w-[180px]" size="sm">
           <GitBranch className="mr-2 h-4 w-4" />
           <SelectValue placeholder="Checkout branch" />
         </SelectTrigger>
