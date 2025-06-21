@@ -7,7 +7,7 @@ import Timeline from './Timeline';
 import Controls from './Controls';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from "@/hooks/use-toast";
-import { merge as diffMerge } from 'diff';
+import * as diff from 'diff';
 
 const initialCommitId = 'a1b2c3d';
 const initialContent = `// Welcome to GitFlow!
@@ -203,7 +203,7 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
             const targetContent = targetCommit.content;
             const ancestorContent = ancestorCommit.content;
             
-            const mergeResult = diffMerge(targetContent, sourceContent, ancestorContent);
+            const mergeResult = diff.merge(targetContent, sourceContent, ancestorContent);
     
             let mergedContentLines: string[] = [];
             let hasConflict = false;
@@ -212,12 +212,12 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
                 if ('conflict' in hunk) {
                     hasConflict = true;
                     mergedContentLines.push('<<<<<<< HEAD');
-                    mergedContentLines.push(...(hunk as any).mine);
+                    mergedContentLines.push(...hunk.mine);
                     mergedContentLines.push('=======');
-                    mergedContentLines.push(...(hunk as any).theirs);
+                    mergedContentLines.push(...hunk.theirs);
                     mergedContentLines.push(`>>>>>>> ${sourceBranchName}`);
                 } else if ('ok' in hunk) {
-                    mergedContentLines.push(...(hunk as any).ok);
+                    mergedContentLines.push(...hunk.ok);
                 }
             });
             
