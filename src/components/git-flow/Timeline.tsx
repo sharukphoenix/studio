@@ -3,6 +3,7 @@
 import type { GitRepository, Commit } from '@/types/git';
 import { useMemo } from 'react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Separator } from '@/components/ui/separator';
 
 const LANE_HEIGHT = 60;
 const COMMIT_WIDTH = 100;
@@ -87,6 +88,7 @@ export default function Timeline({ repoState }: { repoState: GitRepository }) {
     
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
     const headCommitId = repoState.HEAD.type === 'branch' ? repoState.branches[repoState.HEAD.name].commitId : repoState.HEAD.id;
+    const latestCommitId = repoState.commitOrder[repoState.commitOrder.length - 1];
 
     return (
         <TooltipProvider>
@@ -95,15 +97,21 @@ export default function Timeline({ repoState }: { repoState: GitRepository }) {
                     <defs>
                         <style>
                             {`
+                                @keyframes draw-line {
+                                    to {
+                                        stroke-dashoffset: 0;
+                                    }
+                                }
                                 .path-line {
                                     transition: d 0.5s ease-in-out;
                                 }
+                                .path-line-animated {
+                                    stroke-dasharray: 500;
+                                    stroke-dashoffset: 500;
+                                    animation: draw-line 0.7s ease-out forwards 0.2s;
+                                }
                                 .commit-node {
                                     transition: transform 0.3s ease-in-out;
-                                }
-                                .commit-node:hover {
-                                    transform-origin: center;
-                                    transform-box: fill-box;
                                 }
                             `}
                         </style>
@@ -118,14 +126,25 @@ export default function Timeline({ repoState }: { repoState: GitRepository }) {
                                 ? `M ${parentNode.x} ${parentNode.y} L ${node.x} ${node.y}`
                                 : `M ${parentNode.x} ${parentNode.y} C ${parentNode.x + COMMIT_WIDTH / 2} ${parentNode.y}, ${node.x - COMMIT_WIDTH / 2} ${node.y}, ${node.x} ${node.y}`;
                             
-                            return <path key={`${parentId}-${node.id}`} d={d} stroke="#ccc" strokeWidth="2" fill="none" className="path-line" />;
+                            const isLatestPath = node.id === latestCommitId;
+
+                            return (
+                                <path 
+                                    key={`${parentId}-${node.id}`} 
+                                    d={d} 
+                                    stroke="#ccc" 
+                                    strokeWidth="2" 
+                                    fill="none" 
+                                    className={isLatestPath ? "path-line path-line-animated" : "path-line"} 
+                                />
+                            );
                         })
                     )}
                     
                     {nodes.map(node => (
                         <Tooltip key={node.id}>
                             <TooltipTrigger asChild>
-                                <g transform={`translate(${node.x}, ${node.y})`} className="commit-node cursor-pointer hover:scale-110">
+                                <g transform={`translate(${node.x}, ${node.y})`} className="commit-node cursor-pointer">
                                     <circle 
                                         r={COMMIT_RADIUS}
                                         fill={headCommitId === node.id ? 'hsl(var(--accent))' : 'hsl(var(--primary))'}
@@ -135,10 +154,17 @@ export default function Timeline({ repoState }: { repoState: GitRepository }) {
                                     <text y="4" textAnchor="middle" fill={headCommitId === node.id ? 'hsl(var(--accent-foreground))' : 'hsl(var(--primary-foreground))'} fontSize="10px" pointerEvents="none">{node.id.substring(0,4)}</text>
                                 </g>
                             </TooltipTrigger>
-                            <TooltipContent>
+                            <TooltipContent className="max-w-sm">
                                 <p className="font-bold">{node.message}</p>
                                 <p className="text-sm text-muted-foreground">by {node.author} on {new Date(node.timestamp).toLocaleDateString()}</p>
-                                <p className="font-mono text-xs mt-2">commit {node.id}</p>
+                                <p className="font-mono text-xs mt-2 mb-2">commit {node.id}</p>
+                                <Separator />
+                                <p className="text-xs mt-2 mb-1 font-semibold">Content at this commit:</p>
+                                <pre className="text-xs bg-muted p-2 rounded-md max-h-40 overflow-auto font-code">
+                                    <code>
+                                        {node.content}
+                                    </code>
+                                </pre>
                             </TooltipContent>
                         </Tooltip>
                     ))}
