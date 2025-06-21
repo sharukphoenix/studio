@@ -200,11 +200,9 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
             const targetContent = state.commits[targetCommitId].content;
             const ancestorContent = state.commits[commonAncestorId].content;
             
-            // Create patches from ancestor to each branch head
             const patchToTarget = createPatch('file.txt', ancestorContent, targetContent, '', '');
             const patchToSource = createPatch('file.txt', ancestorContent, sourceContent, '', '');
 
-            // Try to apply patches cross-wise to detect conflicts
             const resultApplyingSourceChanges = applyPatch(targetContent, patchToSource);
             const resultApplyingTargetChanges = applyPatch(sourceContent, patchToTarget);
 
@@ -212,8 +210,6 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
             if (resultApplyingSourceChanges === false || resultApplyingTargetChanges === false) {
                 hasConflict = true;
             } else if (resultApplyingSourceChanges !== resultApplyingTargetChanges) {
-                // If the outcomes of applying patches are different, it implies a conflict
-                // where changes couldn't be cleanly merged in the same way.
                 hasConflict = true;
             }
 
@@ -229,13 +225,12 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
                 return {
                     ...state,
                     workingDirectory: conflictContent,
-                    stagingArea: null, // Unstaged changes on conflict
+                    stagingArea: null,
                     mergeState: { sourceBranch: sourceBranchName },
                 };
             }
             
-            // If no conflict, the result is the successfully merged content
-            const newContent = resultApplyingSourceChanges as string; // We know it's not false
+            const newContent = resultApplyingSourceChanges as string;
             const newCommitId = crypto.randomUUID().slice(0, 7);
             const mergeCommit: Commit = {
                 id: newCommitId,
@@ -265,7 +260,7 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
             const commitToRevert = state.commits[commitId];
 
             if (!commitToRevert || commitToRevert.parents.length === 0) {
-                return state; // Cannot revert initial commit
+                return state;
             }
 
             const parentOfRevertedCommit = state.commits[commitToRevert.parents[0]];
@@ -335,8 +330,6 @@ export default function GitVisualizer() {
         const commit = repoState.commits[currentCommitId];
         if (commit) {
             commitsList.push(commit);
-            // This simplification only follows the first parent.
-            // For a merge commit, it will follow the main branch history.
             currentCommitId = commit.parents[0];
         } else {
             currentCommitId = undefined;
@@ -411,8 +404,6 @@ export default function GitVisualizer() {
     const preMergeState = repoState;
     dispatch({ type: 'MERGE', payload: branchName });
     
-    // We need to check the state *after* the dispatch to see what happened.
-    // This is a bit of a trick to show the right toast.
     const sourceCommitId = preMergeState.branches[branchName].commitId;
     const targetCommitId = preMergeState.HEAD.type === 'branch' ? preMergeState.branches[preMergeState.HEAD.name].commitId : preMergeState.HEAD.id;
     const commonAncestorId = findCommonAncestor(preMergeState, sourceCommitId, targetCommitId);
@@ -473,8 +464,8 @@ export default function GitVisualizer() {
                 repoCommits={Object.values(repoState.commits)}
             />
         </header>
-        <div className="flex flex-grow overflow-hidden">
-            <div className="w-2/5 p-4 h-full flex flex-col min-w-[300px]">
+        <div className="flex flex-col md:flex-row flex-grow overflow-hidden">
+            <div className="w-full md:w-2/5 p-4 h-[50svh] md:h-full flex flex-col min-w-[300px] order-2 md:order-1">
               <TextEditor 
                   content={repoState.workingDirectory}
                   onContentChange={(content) => dispatch({ type: 'EDIT_FILE', payload: content })}
@@ -482,7 +473,7 @@ export default function GitVisualizer() {
                   headContent={headContent}
               />
             </div>
-            <div className="w-3/5 p-4 h-full overflow-auto border-l flex-grow">
+            <div className="w-full md:w-3/5 p-4 h-[50svh] md:h-full overflow-auto border-t md:border-t-0 md:border-l flex-grow order-1 md:order-2">
                 <Card className="h-full">
                     <CardContent className="p-4 h-full">
                         <Timeline repoState={repoState} />
