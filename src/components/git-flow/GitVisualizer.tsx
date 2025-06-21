@@ -7,6 +7,7 @@ import Timeline from './Timeline';
 import Controls from './Controls';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from "@/hooks/use-toast";
+import { merge as diffMerge } from 'diff';
 
 const initialCommitId = 'a1b2c3d';
 const initialContent = `// Welcome to GitFlow!
@@ -115,7 +116,6 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
                     content: state.stagingArea,
                 };
                 
-                // Clear mergeState by destructuring it out
                 const { mergeState, ...restState } = state;
 
                 return {
@@ -182,18 +182,17 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
             const commonAncestorId = findCommonAncestor(state, sourceCommitId, targetCommitId);
             if (!commonAncestorId) return state; 
             
-            if(commonAncestorId === sourceCommitId) { // Target is ahead, fast-forwardable
-                 return { // No-ff merge
-                    ...state,
-                };
-            }
-             if (commonAncestorId === targetCommitId) { // Source is ahead, fast-forward
+            if (commonAncestorId === targetCommitId) { // Source is ahead, fast-forward
                 return {
                     ...state,
                     branches: { ...state.branches, [targetBranchName]: { ...state.branches[targetBranchName], commitId: sourceCommitId } },
                     workingDirectory: state.commits[sourceCommitId].content,
                     stagingArea: null,
                 };
+            }
+
+            if(commonAncestorId === sourceCommitId) { // Target is ahead, nothing to merge. For simulation, create a merge commit.
+                 // Let the logic continue to create a merge commit
             }
 
             const sourceCommit = state.commits[sourceCommitId];
@@ -204,20 +203,34 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
             const targetContent = targetCommit.content;
             const ancestorContent = ancestorCommit.content;
             
-            const sourceChanged = sourceContent !== ancestorContent;
-            const targetChanged = targetContent !== ancestorContent;
+            const mergeResult = diffMerge(targetContent, sourceContent, ancestorContent);
+    
+            let mergedContentLines: string[] = [];
+            let hasConflict = false;
 
-            if (sourceChanged && targetChanged && sourceContent !== targetContent) {
-                const conflictContent = `<<<<<<< HEAD\n${targetContent}\n=======\n${sourceContent}\n>>>>>>> ${sourceBranchName}`;
+            mergeResult.forEach(hunk => {
+                if ('conflict' in hunk) {
+                    hasConflict = true;
+                    mergedContentLines.push('<<<<<<< HEAD');
+                    mergedContentLines.push(...(hunk as any).mine);
+                    mergedContentLines.push('=======');
+                    mergedContentLines.push(...(hunk as any).theirs);
+                    mergedContentLines.push(`>>>>>>> ${sourceBranchName}`);
+                } else if ('ok' in hunk) {
+                    mergedContentLines.push(...(hunk as any).ok);
+                }
+            });
+            
+            const mergedContent = mergedContentLines.join('\n');
+
+            if (hasConflict) {
                 return {
                     ...state,
-                    workingDirectory: conflictContent,
+                    workingDirectory: mergedContent,
                     stagingArea: null,
                     mergeState: { sourceBranch: sourceBranchName },
                 };
             }
-
-            const mergedContent = sourceChanged ? sourceContent : targetContent;
             
             const newCommitId = crypto.randomUUID().slice(0, 7);
             const mergeCommit: Commit = {
@@ -391,8 +404,16 @@ export default function GitVisualizer() {
         return;
     }
     dispatch({ type: 'MERGE', payload: branchName });
-    if (!repoState.mergeState) {
-        toast({ title: 'Merge successful', description: `Merged "${branchName}" into current branch.` });
+    if (!repoState.mergeState) { // This check might be racy, relies on reducer state change
+        const sourceCommitId = repoState.branches[branchName].commitId;
+        const targetCommitId = repoState.HEAD.type === 'branch' ? repoState.branches[repoState.HEAD.name].commitId : repoState.HEAD.id;
+        const commonAncestorId = findCommonAncestor(repoState, sourceCommitId, targetCommitId);
+        
+        if (commonAncestorId === targetCommitId) {
+             toast({ title: 'Fast-forward merge', description: `Merged "${branchName}" into current branch.` });
+        } else if (!repoState.mergeState){
+             toast({ title: 'Merge successful', description: `Created merge commit for "${branchName}".` });
+        }
     }
   };
 
