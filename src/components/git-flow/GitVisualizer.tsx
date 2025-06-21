@@ -195,19 +195,29 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
                     stagingArea: null,
                 };
             }
-
-            const sourceCommit = state.commits[sourceCommitId];
-            const targetCommit = state.commits[targetCommitId];
-            const ancestorCommit = state.commits[commonAncestorId];
-
-            const sourceContent = sourceCommit.content;
-            const targetContent = targetCommit.content;
-            const ancestorContent = ancestorCommit.content;
             
-            const patch = createPatch('file.txt', ancestorContent, sourceContent, '', '');
-            const mergeResult = applyPatch(targetContent, patch);
+            const sourceContent = state.commits[sourceCommitId].content;
+            const targetContent = state.commits[targetCommitId].content;
+            const ancestorContent = state.commits[commonAncestorId].content;
             
-            if (mergeResult === false) {
+            // Create patches from ancestor to each branch head
+            const patchToTarget = createPatch('file.txt', ancestorContent, targetContent, '', '');
+            const patchToSource = createPatch('file.txt', ancestorContent, sourceContent, '', '');
+
+            // Try to apply patches cross-wise to detect conflicts
+            const resultApplyingSourceChanges = applyPatch(targetContent, patchToSource);
+            const resultApplyingTargetChanges = applyPatch(sourceContent, patchToTarget);
+
+            let hasConflict = false;
+            if (resultApplyingSourceChanges === false || resultApplyingTargetChanges === false) {
+                hasConflict = true;
+            } else if (resultApplyingSourceChanges !== resultApplyingTargetChanges) {
+                // If the outcomes of applying patches are different, it implies a conflict
+                // where changes couldn't be cleanly merged in the same way.
+                hasConflict = true;
+            }
+
+            if (hasConflict) {
                  const conflictContent = [
                     '<<<<<<< HEAD',
                     targetContent,
@@ -224,8 +234,8 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
                 };
             }
             
-            // Clean merge
-            const newContent = mergeResult;
+            // If no conflict, the result is the successfully merged content
+            const newContent = resultApplyingSourceChanges as string; // We know it's not false
             const newCommitId = crypto.randomUUID().slice(0, 7);
             const mergeCommit: Commit = {
                 id: newCommitId,
@@ -243,7 +253,7 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
                     ...state.branches,
                     [targetBranchName]: { ...state.branches[targetBranchName], commitId: newCommitId }
                 },
-                workingDirectory: mergeCommit.content,
+                workingDirectory: newContent,
                 stagingArea: null,
                 commitOrder: [...state.commitOrder, newCommitId],
             };
