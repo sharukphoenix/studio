@@ -7,7 +7,7 @@ import Timeline from './Timeline';
 import Controls from './Controls';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from "@/hooks/use-toast";
-import * as diff from 'diff';
+import { merge } from 'diff';
 
 const initialCommitId = 'a1b2c3d';
 const initialContent = `// Welcome to GitFlow!
@@ -203,7 +203,7 @@ function gitReducer(state: GitRepository, action: Action): GitRepository {
             const targetContent = targetCommit.content;
             const ancestorContent = ancestorCommit.content;
             
-            const mergeResult = diff.merge(targetContent, sourceContent, ancestorContent);
+            const mergeResult = merge(targetContent, sourceContent, ancestorContent);
     
             let mergedContentLines: string[] = [];
             let hasConflict = false;
